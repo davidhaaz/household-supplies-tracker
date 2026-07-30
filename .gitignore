@@ -1,0 +1,25 @@
+# Node
+node_modules/
+npm-debug.log*
+.DS_Store
+.vscode/
+
+# Build output
+dist/
+
+# Env files
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+
+# OS
+Thumbs.db
+
+# Editor
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
