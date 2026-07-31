@@ -9,6 +9,5 @@ const repoName = process.env.GITHUB_REPOSITORY
 
 export default defineConfig({
   plugins: [react()],
-  base: process.env.GITHUB_ACTIONS ? `/${repoName}/` : "/",
-  envPrefix: "VITE_",
+  base: "/household-supplies-tracker/",
 });
