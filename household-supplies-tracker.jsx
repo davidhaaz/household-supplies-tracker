@@ -1,4 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { getApps, initializeApp } from "firebase/app";
+import { getDatabase, get, ref, set } from "firebase/database";
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from "firebase/auth";
 
 /*
   Household Supplies Tracker
@@ -60,20 +70,81 @@ const STORAGE_ENABLED =
   typeof window.storage.get === "function" &&
   typeof window.storage.set === "function";
 
+const FIREBASE_CONFIG = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "",
+};
+
+let firebaseDb = null;
+let firebaseAuth = null;
+let firebaseInitAttempted = false;
+
+function initFirebase() {
+  if (firebaseInitAttempted) {
+    return { db: firebaseDb, auth: firebaseAuth };
+  }
+  firebaseInitAttempted = true;
+
+  if (!FIREBASE_CONFIG.projectId || !FIREBASE_CONFIG.databaseURL) {
+    return { db: null, auth: null };
+  }
+
+  try {
+    const existingApp = getApps().find(
+      (app) => app.name === "household-tracker",
+    );
+    const app =
+      existingApp || initializeApp(FIREBASE_CONFIG, "household-tracker");
+    firebaseDb = getDatabase(app);
+    firebaseAuth = getAuth(app);
+    return { db: firebaseDb, auth: firebaseAuth };
+  } catch (error) {
+    console.warn("Firebase unavailable, falling back to local storage", error);
+    return { db: null, auth: null };
+  }
+}
+
 async function storageGet(key) {
+  const { db, auth } = initFirebase();
+  if (db && auth?.currentUser) {
+    try {
+      const snapshot = await get(ref(db, key));
+      return snapshot.exists() ? snapshot.val() : null;
+    } catch (error) {
+      console.warn(`Unable to read ${key} from Firebase`, error);
+    }
+  }
+
   if (STORAGE_ENABLED) {
     const res = await window.storage.get(key, true);
     return res && res.value ? JSON.parse(res.value) : null;
   }
+
   const raw = window.localStorage.getItem(key);
   return raw ? JSON.parse(raw) : null;
 }
 
 async function storageSet(key, value) {
+  const { db, auth } = initFirebase();
+  if (db && auth?.currentUser) {
+    try {
+      await set(ref(db, key), value);
+      return;
+    } catch (error) {
+      console.warn(`Unable to save ${key} to Firebase`, error);
+    }
+  }
+
   if (STORAGE_ENABLED) {
     await window.storage.set(key, JSON.stringify(value), true);
     return;
   }
+
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
@@ -367,6 +438,30 @@ export default function HouseholdTracker() {
   }, [initData]);
 
   useEffect(() => {
+    const { auth } = initFirebase();
+    if (!auth) return;
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUser({
+          id: user.uid,
+          name: user.displayName || user.email?.split("@")[0] || "User",
+          accessCode: "0000",
+          isManager: false,
+          email: user.email,
+          firebaseUid: user.uid,
+        });
+        setView("list");
+      } else {
+        setCurrentUser(null);
+        setView("login");
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
     pollRef.current = setInterval(async () => {
       const remote = await loadRemote();
       if (remote && remote.purchases) {
@@ -382,6 +477,19 @@ export default function HouseholdTracker() {
     }, POLL_MS);
     return () => clearInterval(pollRef.current);
   }, []);
+
+  const handleLogout = async () => {
+    const { auth } = initFirebase();
+    if (auth) {
+      try {
+        await signOut(auth);
+      } catch (error) {
+        console.warn("Logout failed", error);
+      }
+    }
+    setCurrentUser(null);
+    setView("login");
+  };
 
   const recordPurchase = async (itemId) => {
     if (!currentUser) return;
@@ -417,16 +525,10 @@ export default function HouseholdTracker() {
 
   if (!currentUser) {
     return (
-      <LoginView
-        users={users}
+      <FirebaseAuthLoginView
         onLoginSuccess={(user) => {
           setCurrentUser(user);
           setView("list");
-        }}
-        onAddUser={async (newUser) => {
-          const updated = [...users, newUser];
-          setUsers(updated);
-          await saveUsers(updated);
         }}
       />
     );
@@ -505,10 +607,7 @@ export default function HouseholdTracker() {
               synced
             </span>
             <button
-              onClick={() => {
-                setCurrentUser(null);
-                setView("login");
-              }}
+              onClick={handleLogout}
               style={{
                 marginLeft: "6px",
                 border: `1.5px solid ${PALETTE.line}`,
@@ -1855,6 +1954,230 @@ function LoginView({ users, onLoginSuccess, onAddUser }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FirebaseAuthLoginView({ onLoginSuccess }) {
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+
+    if (!email.trim() || !password) {
+      setError("Please enter an email and password.");
+      return;
+    }
+
+    const { auth } = initFirebase();
+    if (!auth) {
+      setError("Firebase is not configured yet. Add your .env values first.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let userCredential;
+      if (mode === "signup") {
+        if (!name.trim()) {
+          setError("Please enter your name.");
+          setLoading(false);
+          return;
+        }
+        userCredential = await createUserWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password,
+        );
+        await updateProfile(userCredential.user, { displayName: name.trim() });
+      } else {
+        userCredential = await signInWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password,
+        );
+      }
+
+      const user = userCredential.user;
+      onLoginSuccess({
+        id: user.uid,
+        name:
+          user.displayName ||
+          name.trim() ||
+          user.email?.split("@")[0] ||
+          "User",
+        accessCode: "0000",
+        isManager: false,
+        email: user.email,
+        firebaseUid: user.uid,
+      });
+    } catch (authError) {
+      setError(authError.message || "Authentication failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: PALETTE.paper,
+        fontFamily: "'DM Sans', sans-serif",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+      }}
+    >
+      <GoogleFonts />
+      <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
+        <div
+          style={{
+            fontFamily: "'Archivo Black', sans-serif",
+            fontSize: "12px",
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            color: PALETTE.forest,
+            marginBottom: "6px",
+          }}
+        >
+          Aisle 0 — Household
+        </div>
+        <h1
+          style={{
+            fontFamily: "'Archivo Black', sans-serif",
+            fontSize: "28px",
+            color: PALETTE.ink,
+            margin: "0 0 20px",
+            lineHeight: 1.1,
+          }}
+        >
+          Pantry Log
+        </h1>
+        <p
+          style={{
+            color: PALETTE.inkSoft,
+            fontSize: "14px",
+            margin: "0 0 20px",
+          }}
+        >
+          {mode === "login"
+            ? "Sign in with your Firebase account"
+            : "Create a new Firebase account"}
+        </p>
+
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+        >
+          {mode === "signup" && (
+            <input
+              type="text"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Your name"
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                border: `1.5px solid ${PALETTE.line}`,
+                borderRadius: "10px",
+                fontSize: "15px",
+                boxSizing: "border-box",
+              }}
+            />
+          )}
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Email"
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              border: `1.5px solid ${PALETTE.line}`,
+              borderRadius: "10px",
+              fontSize: "15px",
+              boxSizing: "border-box",
+            }}
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              border: `1.5px solid ${PALETTE.line}`,
+              borderRadius: "10px",
+              fontSize: "15px",
+              boxSizing: "border-box",
+            }}
+          />
+          {error && (
+            <div
+              style={{
+                background: "#FCEBE3",
+                color: PALETTE.rust,
+                padding: "10px",
+                borderRadius: "8px",
+                fontSize: "12px",
+                fontWeight: 600,
+              }}
+            >
+              {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              border: "none",
+              background: PALETTE.forest,
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: "14px",
+              padding: "12px",
+              borderRadius: "9px",
+              cursor: loading ? "default" : "pointer",
+              opacity: loading ? 0.8 : 1,
+            }}
+          >
+            {loading
+              ? "Please wait..."
+              : mode === "login"
+                ? "Sign in"
+                : "Create account"}
+          </button>
+        </form>
+
+        <button
+          onClick={() => {
+            setMode(mode === "login" ? "signup" : "login");
+            setError("");
+          }}
+          style={{
+            marginTop: "12px",
+            border: "none",
+            background: "transparent",
+            color: PALETTE.forest,
+            fontWeight: 700,
+            fontSize: "13px",
+            cursor: "pointer",
+          }}
+        >
+          {mode === "login"
+            ? "Need an account? Create one"
+            : "Already have an account? Sign in"}
+        </button>
       </div>
     </div>
   );

@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "household-tracker-data-v1": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "household-tracker-items-v1": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "household-tracker-users-v1": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
