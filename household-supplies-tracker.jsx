@@ -30,10 +30,6 @@ const STORAGE_KEY_ITEMS = "household-tracker-items-v1";
 const STORAGE_KEY_USERS = "household-tracker-users-v1";
 const POLL_MS = 4000;
 
-const DEFAULT_USERS = [
-  { id: "user_manager", name: "Manager", accessCode: "0000", isManager: true },
-];
-
 const DEFAULT_ITEMS = [
   {
     id: "item1",
@@ -518,7 +514,7 @@ export default function HouseholdTracker() {
           color: PALETTE.inkSoft,
         }}
       >
-        Loading the pantry log…
+        Loading the Suministros del Departamento…
       </div>
     );
   }
@@ -564,17 +560,6 @@ export default function HouseholdTracker() {
           }}
         >
           <div>
-            <div
-              style={{
-                fontFamily: "'Archivo Black', sans-serif",
-                fontSize: "11px",
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                color: PALETTE.forest,
-              }}
-            >
-              Aisle 0 — Household
-            </div>
             <h1
               style={{
                 fontFamily: "'Archivo Black', sans-serif",
@@ -583,7 +568,7 @@ export default function HouseholdTracker() {
                 margin: "2px 0 0",
               }}
             >
-              Pantry Log
+              Suministros del Departamento
             </h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -1357,18 +1342,6 @@ function LoginView({ users, onLoginSuccess, onAddUser }) {
     >
       <GoogleFonts />
       <div style={{ maxWidth: 340, width: "100%", textAlign: "center" }}>
-        <div
-          style={{
-            fontFamily: "'Archivo Black', sans-serif",
-            fontSize: "12px",
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            color: PALETTE.forest,
-            marginBottom: "6px",
-          }}
-        >
-          Aisle 0 — Household
-        </div>
         <h1
           style={{
             fontFamily: "'Archivo Black', sans-serif",
@@ -1378,7 +1351,7 @@ function LoginView({ users, onLoginSuccess, onAddUser }) {
             lineHeight: 1.1,
           }}
         >
-          Pantry Log
+          Suministros del Departamento
         </h1>
 
         {step === "home" && (
@@ -2039,18 +2012,6 @@ function FirebaseAuthLoginView({ onLoginSuccess }) {
     >
       <GoogleFonts />
       <div style={{ maxWidth: 360, width: "100%", textAlign: "center" }}>
-        <div
-          style={{
-            fontFamily: "'Archivo Black', sans-serif",
-            fontSize: "12px",
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            color: PALETTE.forest,
-            marginBottom: "6px",
-          }}
-        >
-          Aisle 0 — Household
-        </div>
         <h1
           style={{
             fontFamily: "'Archivo Black', sans-serif",
@@ -2060,7 +2021,7 @@ function FirebaseAuthLoginView({ onLoginSuccess }) {
             lineHeight: 1.1,
           }}
         >
-          Pantry Log
+          Suministros del Departamento
         </h1>
         <p
           style={{
