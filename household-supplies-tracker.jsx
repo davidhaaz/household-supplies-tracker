@@ -514,7 +514,7 @@ export default function HouseholdTracker() {
           color: PALETTE.inkSoft,
         }}
       >
-        Loading the Suministros del Departamento…
+        Loading the Suministros del Departamento 201
       </div>
     );
   }
